@@ -1,0 +1,321 @@
+library(shiny)
+library(shinythemes)
+
+# Define UI for application
+ui <- fluidPage(
+  theme = shinytheme("flatly"),
+  titlePanel("Statistical Test Decision Tree"),
+  
+  sidebarLayout(
+    sidebarPanel(
+      helpText("Follow the questions below to find the appropriate statistical test for your research."),
+      
+      # Step 1: Main Goal
+      selectInput("goal", "1. What is the main goal of your analysis?",
+                  choices = c("Select one" = "",
+                              "Compare groups",
+                              "Relationship between variables",
+                              "Prediction / Classification")),
+      
+      # Step 2: Response Variable Type (Conditional on Step 1)
+      uiOutput("response_ui"),
+      
+      # Step 3: Experimental Structure or Details (Conditional on Step 2)
+      uiOutput("structure_ui"),
+      
+      # Step 4: Specific Details or Assumptions (Conditional on Step 3)
+      uiOutput("details_ui"),
+      
+      # Step 5: Assumptions Check (Conditional)
+      uiOutput("assumptions_ui"),
+      
+      hr(),
+      actionButton("reset", "Reset", class = "btn-warning")
+    ),
+    
+    mainPanel(
+      tabsetPanel(
+        tabPanel("Recommendation",
+                 br(),
+                 uiOutput("recommendation_ui")
+        ),
+        tabPanel("About & References",
+                 br(),
+                 h4("About this Tool"),
+                 p("This tool is designed to help students in agriculture, ecology, forestry, horticulture, and related fields select the most appropriate statistical test for their data."),
+                 h4("References"),
+                 tags$ul(
+                   tags$li(a("Choosing the Right Statistical Test: A Decision Tree Approach", href="https://www.statology.org/choosing-the-right-statistical-test-a-decision-tree-approach/"), " by Iván Palomares Carrascosa"),
+                   tags$li(a("Which is the correct statistical test to use?", href="http://oralpathol.dlearn.kmu.edu.tw/case/Journal%20reading-intern-08-12/statistical%20use-review-BJOMFS-2008.pdf"), " by Evie McCrum-Gardner")
+                 ),
+                 h4("Key Statistical Concepts"),
+                 p("**Parametric Tests:** Assume data follow a specific distribution (usually normal). Examples: t-test, ANOVA."),
+                 p("**Non-parametric Tests:** Make no assumptions about data distribution. Examples: Mann-Whitney U, Kruskal-Wallis."),
+                 p("**Assumptions:** Conditions that should be met for a test to be valid:"),
+                 tags$ul(
+                   tags$li("**Normality:** Data are approximately normally distributed"),
+                   tags$li("**Homogeneity of Variance:** Groups have similar variances"),
+                   tags$li("**Independence:** Observations are independent of each other"),
+                   tags$li("**Overdispersion:** Variance exceeds what is expected for count data")
+                 )
+        )
+      )
+    )
+  )
+)
+
+# Define server logic
+server <- function(input, output, session) {
+  
+  # Reactive values to manage UI visibility and resets
+  observeEvent(input$reset, {
+    updateSelectInput(session, "goal", selected = "")
+    updateSelectInput(session, "response_type", selected = "")
+    updateSelectInput(session, "structure", selected = "")
+    updateSelectInput(session, "details", selected = "")
+    updateSelectInput(session, "assumptions", selected = "")
+  }, ignoreInit = TRUE)
+  
+  # Step 2: Response Variable Type
+  output$response_ui <- renderUI({
+    req(input$goal)
+    
+    choices <- switch(input$goal,
+                      "Compare groups" = c("Select one" = "", "Continuous", "Count", "Binary", "Proportion", "Ordinal"),
+                      "Relationship between variables" = c("Select one" = "", "Continuous vs Continuous", "Multivariate community/ecological data", "Binary response", "Count response", "Ordinal response"),
+                      "Prediction / Classification" = c("Select one" = "", "Continuous", "Binary", "Count", "Time-to-event / mortality / failure", "High-dimensional multivariate data"))
+    
+    selectInput("response_type", "2. What is the type of the response variable?", choices = choices)
+  })
+  
+  # Step 3: Experimental Structure or Details
+  output$structure_ui <- renderUI({
+    req(input$response_type)
+    
+    if (input$goal == "Compare groups" && input$response_type == "Continuous") {
+      selectInput("structure", "3. What is the experimental structure?",
+                  choices = c("Select one" = "", "Completely Randomized Design (CRD)", "RCBD", "Split-plot", "Repeated measures", "Nested design"))
+    } else if (input$goal == "Compare groups" && input$response_type %in% c("Binary", "Ordinal")) {
+      selectInput("independence", "3. Are the observations independent?",
+                  choices = c("Select one" = "", "Yes", "No"))
+    } else if (input$goal == "Relationship between variables" && input$response_type == "Multivariate community/ecological data") {
+      selectInput("multivariate_goal", "3. What is the goal of the multivariate analysis?",
+                  choices = c("Select one" = "", "Ordination", "Group comparison"))
+    } else if (input$goal == "Relationship between variables" && input$response_type %in% c("Binary response", "Ordinal response")) {
+      selectInput("independence_rel", "3. Are the observations independent?",
+                  choices = c("Select one" = "", "Yes", "No"))
+    } else if (input$goal == "Prediction / Classification" && input$response_type == "Continuous") {
+      selectInput("linearity", "3. Is there a linear relationship?",
+                  choices = c("Select one" = "", "Yes", "No"))
+    } else if (input$goal == "Prediction / Classification" && input$response_type == "Binary") {
+      selectInput("structure_pred", "3. Is there a repeated or nested structure?",
+                  choices = c("Select one" = "", "Yes", "No"))
+    } else if (input$goal == "Prediction / Classification" && input$response_type == "High-dimensional multivariate data") {
+      selectInput("high_dim_goal", "3. What is the goal?",
+                  choices = c("Select one" = "", "Dimension reduction", "Classification"))
+    } else if (input$response_type == "Proportion") {
+      selectInput("proportion_type", "3. How are the values represented?",
+                  choices = c("Select one" = "", "Values bounded between 0 and 1", "Binomial counts"))
+    } else if (input$response_type == "Time-to-event / mortality / failure") {
+      selectInput("censoring", "3. Are there censored observations?",
+                  choices = c("Select one" = "", "Yes", "No"))
+    }
+  })
+  
+  # Step 4: Specific Details (e.g., number of groups)
+  output$details_ui <- renderUI({
+    if (!is.null(input$structure) && input$structure == "Completely Randomized Design (CRD)") {
+      selectInput("num_groups", "4. How many groups are being compared?",
+                  choices = c("Select one" = "", "2 groups", ">2 groups"))
+    }
+  })
+  
+  # Step 5: Assumptions Check
+  output$assumptions_ui <- renderUI({
+    # Logic to show assumptions check for specific paths
+    show_assumptions <- FALSE
+    
+    if (!is.null(input$num_groups) && input$num_groups != "") show_assumptions <- TRUE
+    if (!is.null(input$structure) && input$structure %in% c("RCBD", "Split-plot", "Nested design")) show_assumptions <- TRUE
+    if (!is.null(input$structure) && input$structure == "Repeated measures") {
+      return(selectInput("assumptions", "5. Are normality and covariance assumptions met?", choices = c("Select one" = "", "Yes", "No")))
+    }
+    if (!is.null(input$response_type) && input$response_type == "Count") show_assumptions <- TRUE
+    if (!is.null(input$response_type) && input$response_type == "Count response") show_assumptions <- TRUE
+    if (!is.null(input$response_type) && input$response_type == "Continuous vs Continuous") show_assumptions <- TRUE
+    
+    if (show_assumptions) {
+      label <- "5. Are the necessary assumptions (e.g., normality, homogeneity of variance) met?"
+      if (input$response_type %in% c("Count", "Count response")) {
+        label <- "4. Is overdispersion present?"
+        choices <- c("Select one" = "", "Yes", "No")
+      } else {
+        choices <- c("Select one" = "", "Yes", "No")
+      }
+      selectInput("assumptions", label, choices = choices)
+    }
+  })
+  
+  # Recommendation Logic
+  output$recommendation_ui <- renderUI({
+    goal_val <- input$goal
+    response_type_val <- input$response_type
+    
+    # Handle dynamic inputs for structure/details/assumptions
+    structure_val <- if (!is.null(input$structure)) input$structure else 
+                     if (!is.null(input$independence)) input$independence else 
+                     if (!is.null(input$multivariate_goal)) input$multivariate_goal else 
+                     if (!is.null(input$independence_rel)) input$independence_rel else 
+                     if (!is.null(input$linearity)) input$linearity else 
+                     if (!is.null(input$structure_pred)) input$structure_pred else 
+                     if (!is.null(input$high_dim_goal)) input$high_dim_goal else 
+                     if (!is.null(input$proportion_type)) input$proportion_type else 
+                     if (!is.null(input$censoring)) input$censoring else NULL
+                     
+    details_val <- if (!is.null(input$num_groups)) input$num_groups else NULL
+    assumptions_val <- if (!is.null(input$assumptions)) input$assumptions else NULL
+    
+    test_name <- NULL
+    description <- NULL
+    when_to_use <- NULL
+    assumptions_text <- NULL
+    
+    # Logic for "Compare groups"
+    if (goal_val == "Compare groups") {
+      if (response_type_val == "Continuous") {
+        if (!is.null(details_val) && structure_val == "Completely Randomized Design (CRD)") {
+          if (details_val == "2 groups") {
+            if (!is.null(assumptions_val)) {
+              if (assumptions_val == "Yes") { test_name <- "Independent t-test"; description <- "Compares the means of two independent groups."; when_to_use <- "Use when comparing two independent groups with continuous data that are approximately normally distributed."; assumptions_text <- "Normality, homogeneity of variance, independence of observations." }
+              else if (assumptions_val == "No") { test_name <- "Mann–Whitney U test"; description <- "Non-parametric alternative to the independent t-test."; when_to_use <- "Use when assumptions for the t-test are not met or data are ordinal."; assumptions_text <- "Independence of observations, ordinal or continuous data." }
+            }
+          } else if (details_val == ">2 groups") {
+            if (!is.null(assumptions_val)) {
+              if (assumptions_val == "Yes") { test_name <- "One-way ANOVA"; description <- "Compares means across three or more independent groups."; when_to_use <- "Use when comparing three or more independent groups with continuous data."; assumptions_text <- "Normality, homogeneity of variance, independence of observations." }
+              else if (assumptions_val == "No") { test_name <- "Kruskal–Wallis test"; description <- "Non-parametric alternative to one-way ANOVA."; when_to_use <- "Use when assumptions for ANOVA are not met or data are ordinal."; assumptions_text <- "Independence of observations, ordinal or continuous data." }
+            }
+          }
+        } else if (!is.null(structure_val)) {
+          if (structure_val == "RCBD") {
+            if (!is.null(assumptions_val)) {
+              if (assumptions_val == "Yes") { test_name <- "RCBD ANOVA"; description <- "Analyzes variance in a randomized complete block design."; when_to_use <- "Use for blocked experimental designs where assumptions are met."; assumptions_text <- "Normality, homogeneity of variance." }
+              else if (assumptions_val == "No") { test_name <- "Friedman test"; description <- "Non-parametric alternative for blocked designs."; when_to_use <- "Use for blocked designs when assumptions are not met."; assumptions_text <- "Independence within blocks." }
+            }
+          } else if (structure_val == "Split-plot") {
+            if (!is.null(assumptions_val)) {
+              if (assumptions_val == "Yes") { test_name <- "Split-plot ANOVA"; description <- "Analyzes variance in split-plot experimental designs."; when_to_use <- "Use for split-plot designs with assumptions met."; assumptions_text <- "Normality, homogeneity of variance." }
+              else if (assumptions_val == "No") { test_name <- "Mixed model with transformed/nonparametric approach"; description <- "Flexible approach for split-plot designs with violated assumptions."; when_to_use <- "Use when assumptions are violated; may require data transformation."; assumptions_text <- "More flexible than ANOVA." }
+            }
+          } else if (structure_val == "Repeated measures") {
+            if (!is.null(assumptions_val)) {
+              if (assumptions_val == "Yes") { test_name <- "Repeated Measures ANOVA"; description <- "Analyzes variance when the same subjects are measured multiple times."; when_to_use <- "Use for repeated measures designs with assumptions met."; assumptions_text <- "Normality, sphericity (homogeneity of variances of differences)." }
+              else if (assumptions_val == "No") { test_name <- "Linear Mixed Model"; description <- "Flexible approach for repeated measures when assumptions are violated."; when_to_use <- "Use for repeated measures with violated assumptions or unbalanced data."; assumptions_text <- "More flexible than repeated measures ANOVA." }
+            }
+          } else if (structure_val == "Nested design") {
+            if (!is.null(assumptions_val)) {
+              if (assumptions_val == "Yes") { test_name <- "Nested ANOVA"; description <- "Analyzes variance in nested experimental designs."; when_to_use <- "Use for nested designs with assumptions met."; assumptions_text <- "Normality, homogeneity of variance." }
+              else if (assumptions_val == "No") { test_name <- "Mixed model"; description <- "Flexible approach for nested designs with violated assumptions."; when_to_use <- "Use for nested designs when assumptions are violated."; assumptions_text <- "More flexible than nested ANOVA." }
+            }
+          }
+        }
+      } else if (response_type_val == "Count") {
+        if (!is.null(assumptions_val)) {
+          if (assumptions_val == "No") { test_name <- "Poisson GLM"; description <- "Generalized linear model for count data without overdispersion."; when_to_use <- "Use for count data when variance equals mean."; assumptions_text <- "Poisson distribution, no overdispersion." }
+          else if (assumptions_val == "Yes") { test_name <- "Negative Binomial GLM"; description <- "Generalized linear model for count data with overdispersion."; when_to_use <- "Use for count data when variance exceeds mean (overdispersion)."; assumptions_text <- "Negative binomial distribution." }
+        }
+      } else if (response_type_val == "Binary") {
+        if (!is.null(structure_val)) {
+          if (structure_val == "Yes") { test_name <- "Logistic regression"; description <- "Analyzes binary outcomes with independent observations."; when_to_use <- "Use for binary response variables with independent observations."; assumptions_text <- "Independence of observations, binary outcome." }
+          else if (structure_val == "No") { test_name <- "Generalized Linear Mixed Model (GLMM)"; description <- "Analyzes binary outcomes with non-independent observations."; when_to_use <- "Use for binary response variables with repeated measures or clustering."; assumptions_text <- "Binary outcome, accounts for dependence structure." }
+        }
+      } else if (response_type_val == "Proportion") {
+        if (!is.null(structure_val)) {
+          if (structure_val == "Values bounded between 0 and 1") { test_name <- "Beta regression"; description <- "Analyzes proportions bounded between 0 and 1."; when_to_use <- "Use for proportion data that are continuous and bounded."; assumptions_text <- "Beta distribution." }
+          else if (structure_val == "Binomial counts") { test_name <- "Binomial GLM"; description <- "Analyzes binomial count data."; when_to_use <- "Use for binomial outcomes (successes/failures)."; assumptions_text <- "Binomial distribution." }
+        }
+      } else if (response_type_val == "Ordinal") {
+        if (!is.null(structure_val)) {
+          if (structure_val == "Yes") { test_name <- "Ordinal logistic regression"; description <- "Analyzes ordinal outcomes with independent observations."; when_to_use <- "Use for ordinal response variables with independent observations."; assumptions_text <- "Independence of observations, ordinal outcome." }
+          else if (structure_val == "No") { test_name <- "Ordinal mixed model"; description <- "Analyzes ordinal outcomes with non-independent observations."; when_to_use <- "Use for ordinal response variables with repeated measures or clustering."; assumptions_text <- "Ordinal outcome, accounts for dependence structure." }
+        }
+      }
+    }
+    
+    # Logic for "Relationship between variables"
+    else if (goal_val == "Relationship between variables") {
+      if (response_type_val == "Continuous vs Continuous") {
+        if (!is.null(assumptions_val)) {
+          if (assumptions_val == "Yes") { test_name <- "Pearson correlation / Linear regression"; description <- "Measures linear association between two continuous variables."; when_to_use <- "Use for normally distributed continuous variables with linear relationships."; assumptions_text <- "Normality, linearity, homoscedasticity." }
+          else if (assumptions_val == "No") { test_name <- "Spearman correlation"; description <- "Non-parametric measure of association between ranked variables."; when_to_use <- "Use when normality assumption is violated or data are ordinal."; assumptions_text <- "Monotonic relationship, independence of observations." }
+        }
+      } else if (response_type_val == "Multivariate community/ecological data") {
+        if (!is.null(structure_val)) {
+          if (structure_val == "Ordination") { test_name <- "PCA / NMDS"; description <- "Dimension reduction techniques for multivariate data."; when_to_use <- "Use to visualize and explore patterns in high-dimensional data."; assumptions_text <- "Depends on specific method; PCA assumes linearity." }
+          else if (structure_val == "Group comparison") { test_name <- "PERMANOVA"; description <- "Tests for differences in multivariate community composition."; when_to_use <- "Use to compare community structure across groups."; assumptions_text <- "Independence of observations." }
+        }
+      } else if (response_type_val == "Binary response") {
+        if (!is.null(structure_val)) {
+          if (structure_val == "Yes") { test_name <- "Logistic regression"; description <- "Analyzes binary outcomes with independent observations."; when_to_use <- "Use for binary response variables with independent observations."; assumptions_text <- "Independence of observations, binary outcome." }
+          else if (structure_val == "No") { test_name <- "GLMM"; description <- "Analyzes binary outcomes with non-independent observations."; when_to_use <- "Use for binary response variables with repeated measures or clustering."; assumptions_text <- "Binary outcome, accounts for dependence structure." }
+        }
+      } else if (response_type_val == "Count response") {
+        if (!is.null(assumptions_val)) {
+          if (assumptions_val == "No") { test_name <- "Poisson regression"; description <- "Analyzes count outcomes without overdispersion."; when_to_use <- "Use for count data when variance equals mean."; assumptions_text <- "Poisson distribution, no overdispersion." }
+          else if (assumptions_val == "Yes") { test_name <- "Negative Binomial regression"; description <- "Analyzes count outcomes with overdispersion."; when_to_use <- "Use for count data when variance exceeds mean."; assumptions_text <- "Negative binomial distribution." }
+        }
+      } else if (response_type_val == "Ordinal response") {
+        if (!is.null(structure_val)) {
+          if (structure_val == "Yes") { test_name <- "Ordinal logistic regression"; description <- "Analyzes ordinal outcomes with independent observations."; when_to_use <- "Use for ordinal response variables with independent observations."; assumptions_text <- "Independence of observations, ordinal outcome." }
+          else if (structure_val == "No") { test_name <- "Ordinal mixed model"; description <- "Analyzes ordinal outcomes with non-independent observations."; when_to_use <- "Use for ordinal response variables with repeated measures or clustering."; assumptions_text <- "Ordinal outcome, accounts for dependence structure." }
+        }
+      }
+    }
+    
+    # Logic for "Prediction / Classification"
+    else if (goal_val == "Prediction / Classification") {
+      if (response_type_val == "Continuous") {
+        if (!is.null(structure_val)) {
+          if (structure_val == "Yes") { test_name <- "Multiple linear regression"; description <- "Predicts continuous outcomes based on multiple predictors."; when_to_use <- "Use for linear relationships between predictors and continuous outcome."; assumptions_text <- "Linearity, normality of residuals, homoscedasticity." }
+          else if (structure_val == "No") { test_name <- "GAM or nonlinear regression"; description <- "Flexible methods for non-linear relationships."; when_to_use <- "Use when relationships are non-linear."; assumptions_text <- "More flexible than linear regression." }
+        }
+      } else if (response_type_val == "Binary") {
+        if (!is.null(structure_val)) {
+          if (structure_val == "No") { test_name <- "Logistic regression"; description <- "Predicts binary outcomes."; when_to_use <- "Use for binary classification without repeated measures."; assumptions_text <- "Independence of observations, binary outcome." }
+          else if (structure_val == "Yes") { test_name <- "GLMM"; description <- "Predicts binary outcomes with complex dependence structures."; when_to_use <- "Use for binary classification with repeated measures or clustering."; assumptions_text <- "Binary outcome, accounts for dependence structure." }
+        }
+      } else if (response_type_val == "Count") {
+        if (!is.null(assumptions_val)) {
+          if (assumptions_val == "No") { test_name <- "Poisson regression"; description <- "Predicts count outcomes without overdispersion."; when_to_use <- "Use for count predictions when variance equals mean."; assumptions_text <- "Poisson distribution, no overdispersion." }
+          else if (assumptions_val == "Yes") { test_name <- "Negative Binomial regression"; description <- "Predicts count outcomes with overdispersion."; when_to_use <- "Use for count predictions when variance exceeds mean."; assumptions_text <- "Negative binomial distribution." }
+        }
+      } else if (response_type_val == "Time-to-event / mortality / failure") {
+        if (!is.null(structure_val)) {
+          if (structure_val == "Yes") { test_name <- "Survival analysis (Cox model)"; description <- "Analyzes time-to-event data with censoring."; when_to_use <- "Use when some observations are censored (incomplete follow-up)."; assumptions_text <- "Proportional hazards assumption." }
+          else if (structure_val == "No") { test_name <- "Parametric survival model"; description <- "Analyzes time-to-event data assuming a specific distribution."; when_to_use <- "Use when all observations are complete (no censoring)."; assumptions_text <- "Specific parametric distribution." }
+        }
+      } else if (response_type_val == "High-dimensional multivariate data") {
+        if (!is.null(structure_val)) {
+          if (structure_val == "Dimension reduction") { test_name <- "PCA"; description <- "Reduces dimensionality of high-dimensional data."; when_to_use <- "Use to visualize and simplify high-dimensional datasets."; assumptions_text <- "Linearity." }
+          else if (structure_val == "Classification") { test_name <- "Discriminant analysis / Random Forest"; description <- "Classifies observations into groups using high-dimensional data."; when_to_use <- "Use for classification with many predictors."; assumptions_text <- "Depends on specific method." }
+        }
+      }
+    }
+    
+    if (!is.null(test_name)) {
+      wellPanel(
+        h3("Recommended Analysis:"),
+        h2(style = "color: #2c3e50;", test_name),
+        p(HTML(paste0("<strong>Description:</strong> ", description))),
+        p(HTML(paste0("<strong>When to use:</strong> ", when_to_use))),
+        p(HTML(paste0("<strong>Assumptions:</strong> ", assumptions_text)))
+      )
+    } else {
+      wellPanel(
+        p("Please complete the selections in the sidebar to receive a recommendation.")
+      )
+    }
+  })
+}
+
+# Run the application 
+shinyApp(ui = ui, server = server)
