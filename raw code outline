@@ -20,6 +20,7 @@ ui <- fluidPage(
     .analyzer-result { padding: 15px; border-radius: 8px; margin-bottom: 10px; border: 1px solid #ddd; }
     .pass { background-color: #dff0d8; border-color: #d6e9c6; color: #3c763d; }
     .fail { background-color: #f2dede; border-color: #ebccd1; color: #a94442; }
+    .cheat-sheet-table th { background-color: var(--uf-blue); color: white; }
   "))),
   navbarPage(title = "Statistical Test Decision Tree", id = "nav",
              tabPanel("Explorer", value = "explorer",
@@ -81,6 +82,36 @@ ui <- fluidPage(
                                       )
                       ))
              ),
+             tabPanel("Cheat Sheet", value = "cheatsheet",
+                      fluidRow(column(10, offset = 1,
+                                      h2("Statistical Test Cheat Sheet", style="color: var(--uf-blue);"),
+                                      p("A high-level overview of common research goals and the corresponding statistical tests."),
+                                      hr(),
+                                      tags$table(class="table table-bordered cheat-sheet-table",
+                                                 tags$thead(
+                                                   tags$tr(tags$th("Goal"), tags$th("Data Type"), tags$th("Parametric Test"), tags$th("Non-Parametric Equivalent"))
+                                                 ),
+                                                 tags$tbody(
+                                                   tags$tr(tags$td("Compare 2 Independent Groups"), tags$td("Continuous"), tags$td("Independent t-test"), tags$td("Mann-Whitney U")),
+                                                   tags$tr(tags$td("Compare >2 Independent Groups"), tags$td("Continuous"), tags$td("One-way ANOVA"), tags$td("Kruskal-Wallis")),
+                                                   tags$tr(tags$td("Compare 2 Related Groups"), tags$td("Continuous"), tags$td("Paired t-test"), tags$td("Wilcoxon Signed-Rank")),
+                                                   tags$tr(tags$td("Compare >2 Related Groups"), tags$td("Continuous"), tags$td("Repeated Measures ANOVA"), tags$td("Friedman Test")),
+                                                   tags$tr(tags$td("Relationship between 2 Variables"), tags$td("Continuous"), tags$td("Pearson Correlation"), tags$td("Spearman Correlation")),
+                                                   tags$tr(tags$td("Predict Binary Outcome"), tags$td("Binary"), tags$td("Logistic Regression"), tags$td("-")),
+                                                   tags$tr(tags$td("Predict Count Outcome"), tags$td("Count"), tags$td("Poisson / Neg-Binomial GLM"), tags$td("-")),
+                                                   tags$tr(tags$td("Analyze Time-to-Event"), tags$td("Survival"), tags$td("Cox Proportional Hazards"), tags$td("Log-rank Test"))
+                                                 )
+                                      ),
+                                      div(class="well", style="margin-top: 20px;",
+                                          h4("Quick Tips:"),
+                                          tags$ul(
+                                            tags$li("Use ", strong("Parametric"), " tests when your data follows a normal distribution and has equal variances."),
+                                            tags$li("Use ", strong("Non-Parametric"), " tests when your data is ordinal, highly skewed, or has small sample sizes."),
+                                            tags$li("If you have multiple independent variables, consider using ", strong("Multiple Regression"), " or ", strong("Factorial ANOVA"), ".")
+                                          )
+                                      )
+                      ))
+             ),
              tabPanel("Assumptions Explanation", value = "deepdive",
                       fluidRow(column(10, offset = 1,
                                       h2("Detailed Explanations", style="color: var(--uf-blue);"),
@@ -120,7 +151,7 @@ ui <- fluidPage(
              )
   )
 )
-
+#define server
 server <- function(input, output, session) {
   observeEvent(input$reset, { updateSelectInput(session, "goal", selected = "") })
   observeEvent(input$go_to_deepdive, { updateNavbarPage(session, "nav", selected = "deepdive") })
@@ -171,14 +202,14 @@ server <- function(input, output, session) {
       } else { p("Error running homogeneity test. Ensure your grouping variable has at least two levels.") }
     )
   })
-  
+  #use reactive
   get_rec <- reactive({
     req(input$goal)
     goal_val <- input$goal
     res_type <- if (isTruthy(input$response_type)) input$response_type else ""
     test_name <- NULL; desc <- NULL; use <- NULL; assump <- NULL; next_steps <- NULL; dive_topic <- NULL
-    #decision tree logic
-    #comparing groups of data
+    #logic tree
+    #comparing groups
     if (identical(goal_val, "Compare groups")) {
       if (identical(res_type, "Continuous")) {
         str_val <- if (isTruthy(input$structure)) input$structure else ""
@@ -236,7 +267,7 @@ server <- function(input, output, session) {
         if (identical(ind_val, "Yes")) { test_name <- "Ordinal logistic regression"; desc <- "Ordinal logistic regression is a statistical method used to model an ordered categorical dpendent variable, such as survey responses ranging from 'strongly disagree' to 'strongly agree'. It assumes proportional odds, meaning that the relationship between each predictor variable and the likelihood of moving to a higher category remains constant across all category thresholds."; use <- "Use for ordinal response variables with independent observations."; assump <- "Independence of observations, ordinal outcome."; next_steps <- "Interpret the coefficients as the change in log-odds of being in a higher category. Check the model fit using the deviance or AIC."; dive_topic <- "Proportional Odds" }
         else { test_name <- "Ordinal mixed model"; desc <- "An ordinal mixed model, or cululative linked model, analyzes an ordered categorical outcome while accounting for nested, clustered, or repeatedly measured data. It achieves this by combining the proportional odds assumption for the ranked categories with random effects that capture variation across individual subjects or groups."; use <- "Use for ordinal response variables with repeated measures or clustering."; assump <- "Ordinal outcome, accounts for dependence structure."; next_steps <- "Account for the hierarchical nature of the data by including random effects. Check for the consistency of the proportional odds assumption across different groups."; dive_topic <- "Proportional Odds" }
       }
-      #predicting or classifying outcomes
+      #predicting/classifying outcomes
     } else if (identical(goal_val, "Prediction / Classification")) {
       if (identical(res_type, "Continuous") && (lin_val <- if (isTruthy(input$linearity)) input$linearity else "") != "") {
         if (identical(lin_val, "Yes")) { test_name <- "Multiple linear regression"; desc <- "Multiple linear regression is a statistical method used to model the linear relationship between a single continuous dependent variable and two or more independent predictors. By calculating a unique slope coefficient for each predictor, it allows you to estimate the specific impact of an independent variable while holding all other variables constant."; use <- "Use for linear relationships between predictors and continuous outcome."; assump <- "Linearity, normality of residuals, homoscedasticity."; next_steps <- "Evaluate the R-squared value to determine the proportion of variance explained. Check for multicollinearity using the Variance Inflation Factor (VIF)."; dive_topic <- "Homoscedasticity" }
@@ -257,7 +288,7 @@ server <- function(input, output, session) {
     }
     list(name = test_name, desc = desc, use = use, assump = assump, next_steps = next_steps, dive_topic = dive_topic)
   })
-  
+  #output
   output$step_progress <- renderUI({
     res <- get_rec()
     percent <- if (!is.null(res$name)) 100 else {
@@ -293,5 +324,5 @@ server <- function(input, output, session) {
     } else { div(class = "well", p(icon("arrow-left"), " Please complete the selections in the sidebar to receive a detailed recommendation.")) }
   })
 }
-
+#shiny app
 shinyApp(ui = ui, server = server)
