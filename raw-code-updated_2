@@ -1,0 +1,469 @@
+library(shiny)
+library(shinythemes)
+library(shinyWidgets)
+
+# Define UI
+ui <- fluidPage(
+  theme = shinytheme("flatly"),
+  tags$head(tags$style(HTML("
+    :root { --uf-orange: #FA4616; --uf-blue: #0021A5; }
+    .navbar-default { background-color: var(--uf-blue); border-color: var(--uf-blue); }
+    .navbar-default .navbar-brand, .navbar-default .navbar-nav > li > a { color: white !important; }
+    .btn-warning { background-color: var(--uf-orange); border-color: var(--uf-orange); }
+    .recommendation-box { border-left: 5px solid var(--uf-orange); padding: 20px; background-color: white; border-radius: 0 8px 8px 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .step-header { color: var(--uf-blue); font-weight: bold; margin-bottom: 15px; border-bottom: 2px solid #eee; padding-bottom: 5px; }
+    .next-steps { background-color: #f0f7ff; padding: 15px; border-radius: 6px; border-left: 4px solid var(--uf-blue); margin-top: 15px; }
+    .footer-panel { background-color: #f8f9fa; border: 1px solid #e9ecef; border-radius: 8px; padding: 20px; margin-top: 30px; }
+    .glossary-term { font-weight: bold; color: var(--uf-blue); font-size: 1.1em; }
+    .learn-more-link { color: var(--uf-orange); font-weight: bold; text-decoration: underline; cursor: pointer; }
+    .analyzer-result { padding: 15px; border-radius: 8px; margin-bottom: 10px; border: 1px solid #ddd; }
+    .pass { background-color: #dff0d8; border-color: #d6e9c6; color: #3c763d; }
+    .fail { background-color: #f2dede; border-color: #ebccd1; color: #a94442; }
+    .cheat-sheet-table th { background-color: var(--uf-blue); color: white; }
+    .assumption-detail { border-left: 4px solid var(--uf-orange); padding-left: 15px; margin-bottom: 25px; }
+    .output-anno { background-color: #2d2d2d; color: #f8f8f2; padding: 15px; border-radius: 5px; font-family: monospace; position: relative; }
+    .anno-tag { color: var(--uf-orange); font-weight: bold; border-bottom: 1px dashed var(--uf-orange); }
+    .tree-container { display: flex; flex-direction: column; align-items: center; padding: 20px; background: #fdfdfd; border-radius: 15px; border: 1px solid #eee; overflow-x: auto; }
+    .tree-node-box { background: #eef4ff; border: 2px solid var(--uf-blue); padding: 10px 20px; border-radius: 8px; font-weight: bold; color: var(--uf-blue); margin: 10px; min-width: 180px; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+    .tree-leaf-box { background: #fff5f0; border: 2px solid var(--uf-orange); padding: 10px 20px; border-radius: 25px; font-weight: bold; color: var(--uf-orange); margin: 10px; min-width: 180px; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+    .tree-connector { height: 30px; width: 2px; background: #ccc; position: relative; }
+    .tree-connector::after { content: '▼'; position: absolute; bottom: -10px; left: -6px; color: #ccc; font-size: 12px; }
+    .tree-row { display: flex; justify-content: center; width: 100%; flex-wrap: wrap; }
+    .glossary-link { color: var(--uf-orange); font-weight: bold; text-decoration: underline; cursor: pointer; border: none; background: none; padding: 0; font-size: inherit; }
+    .glossary-link:hover { color: var(--uf-blue); }
+  ")),
+            tags$script(HTML("
+    function goToGlossary(term) {
+      $('a[data-value=\"explorer\"]').tab('show');
+      setTimeout(function() {
+        var input = $('#glossary_search');
+        input.val(term).trigger('change').trigger('input');
+        Shiny.setInputValue('glossary_search', term, {priority: 'event'});
+        var glossarySection = document.querySelector('.footer-panel');
+        if (glossarySection) glossarySection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 300);
+    }
+  "))
+  ),
+  navbarPage(title = "Statistical Test Decision Tree", id = "nav",
+             tabPanel("Explorer", value = "explorer",
+                      sidebarLayout(
+                        sidebarPanel(width = 4,
+                                     div(class = "step-header", "Dataset Characteristics"),
+                                     selectInput("goal", "1. What is the main goal of your analysis?", choices = c("Select one" = "", "Compare groups", "Relationship between variables", "Prediction / Classification")),
+                                     uiOutput("response_ui"), uiOutput("structure_ui"), uiOutput("details_ui"), uiOutput("assumptions_ui"),
+                                     hr(), actionButton("reset", "Reset Selections", icon = icon("undo"), class = "btn-warning")
+                        ),
+                        mainPanel(width = 8,
+                                  uiOutput("step_progress"),
+                                  uiOutput("recommendation_ui"),
+                                  div(class = "footer-panel",
+                                      h4(icon("book"), "Glossary", style="color: var(--uf-blue); padding: 10px 10px 0 10px;"),
+                                      searchInput(inputId = "glossary_search", label = NULL, placeholder = "Search for terms...", btnSearch = icon("search"), btnReset = icon("remove"), width = "100%"),
+                                      uiOutput("glossary_results")
+                                  )
+                        )
+                      )
+             ),
+             tabPanel("Data Analyzer", value = "analyzer",
+                      fluidRow(column(10, offset = 1,
+                                      h2("Check Your Assumptions", style="color: var(--uf-blue);"),
+                                      sidebarLayout(
+                                        sidebarPanel(width = 4,
+                                                     fileInput("file1", "Upload CSV File", accept = ".csv"),
+                                                     uiOutput("var_selection_ui"),
+                                                     uiOutput("push_to_explorer_ui")
+                                        ),
+                                        mainPanel(width = 8, uiOutput("analyzer_results_ui"))
+                                      )
+                      ))
+             ),
+             tabPanel("Assumption Check Guide", value = "assumption_guide",
+                      fluidRow(column(10, offset = 1,
+                                      h2("Comprehensive Assumption Guide", style="color: var(--uf-blue);"),
+                                      p(em("Click any highlighted term to jump to its definition in the Glossary.")),
+                                      hr(),
+                                      div(class="assumption-detail",
+                                          h4("1. Normality"),
+                                          p("Assumes data follows a bell-shaped curve, consistent with a ",
+                                            tags$button("Normal Distribution", class="glossary-link", onclick="goToGlossary('Normal Distribution')"), "."),
+                                          p(strong("How to check:"), " ",
+                                            tags$button("Shapiro-Wilk Test", class="glossary-link", onclick="goToGlossary('Shapiro-Wilk')"),
+                                            " or ",
+                                            tags$button("Q-Q Plot", class="glossary-link", onclick="goToGlossary('Q-Q Plot')"), ".")
+                                      ),
+                                      div(class="assumption-detail",
+                                          h4("2. Homogeneity of Variance"),
+                                          p("Assumes groups have a similar spread (see also: ",
+                                            tags$button("Homoscedasticity", class="glossary-link", onclick="goToGlossary('Homoscedasticity')"), ")."),
+                                          p(strong("How to check:"), " Levene's test or Bartlett's test.")
+                                      ),
+                                      div(class="assumption-detail",
+                                          h4("3. Independence"),
+                                          p("Assumes data points are not related. See: ",
+                                            tags$button("Independence", class="glossary-link", onclick="goToGlossary('Independence')"), "."),
+                                          p(strong("How to check:"), " Verify through experimental design.")
+                                      ),
+                                      div(class="assumption-detail",
+                                          h4("4. Sphericity"),
+                                          p("For Repeated Measures ANOVA; assumes variances of differences are equal."),
+                                          p(strong("How to check:"), " ",
+                                            tags$button("Mauchly's Test", class="glossary-link", onclick="goToGlossary(\"Mauchly's Test\")"),
+                                            ". If violated, apply the ",
+                                            tags$button("Greenhouse-Geisser Correction", class="glossary-link", onclick="goToGlossary('Greenhouse-Geisser')"),
+                                            " or ",
+                                            tags$button("Huynh-Feldt Correction", class="glossary-link", onclick="goToGlossary('Huynh-Feldt')"), ".")
+                                      ),
+                                      div(class="assumption-detail",
+                                          h4("5. Linearity"),
+                                          p("Assumes a straight-line relationship between variables."),
+                                          p(strong("How to check:"), " Scatterplots. See also: ",
+                                            tags$button("Regression Analysis", class="glossary-link", onclick="goToGlossary('Regression Analysis')"), ".")
+                                      ),
+                                      div(class="assumption-detail",
+                                          h4("6. Multicollinearity"),
+                                          p(tags$button("Multicollinearity", class="glossary-link", onclick="goToGlossary('Multicollinearity')"),
+                                            " assumes predictors are not too highly correlated with one another."),
+                                          p(strong("How to check:"), " ",
+                                            tags$button("Variance Inflation Factor (VIF)", class="glossary-link", onclick="goToGlossary('Variance Inflation Factor')"), ".")
+                                      ),
+                                      div(class="assumption-detail",
+                                          h4("7. Proportional Hazards"),
+                                          p(tags$button("Proportional Hazards", class="glossary-link", onclick="goToGlossary('Proportional Hazards')"),
+                                            " assumes the hazard ratio is constant over time."),
+                                          p(strong("How to check:"), " ",
+                                            tags$button("Schoenfeld Residuals", class="glossary-link", onclick="goToGlossary('Schoenfeld Residuals')"), ".")
+                                      ),
+                                      div(class="assumption-detail",
+                                          h4("8. Multivariate Normality"),
+                                          p(tags$button("Multivariate Normality", class="glossary-link", onclick="goToGlossary('Multivariate Normality')"),
+                                            " assumes variable sets are normal in combination. Required for MANOVA and DA."),
+                                          p(strong("How to check:"), " ",
+                                            tags$button("Mardia's Test", class="glossary-link", onclick="goToGlossary(\"Mardia's Test\")"), ".")
+                                      ),
+                                      div(class="assumption-detail",
+                                          h4("9. Overdispersion"),
+                                          p(tags$button("Overdispersion", class="glossary-link", onclick="goToGlossary('Overdispersion')"),
+                                            " occurs when variance is higher than expected by the model."),
+                                          p(strong("How to check:"), " Residual deviance (see: ",
+                                            tags$button("Deviance Residuals", class="glossary-link", onclick="goToGlossary('Deviance Residuals')"), ").")
+                                      ),
+                                      div(class="assumption-detail",
+                                          h4("10. Proportional Odds"),
+                                          p(tags$button("Proportional Odds", class="glossary-link", onclick="goToGlossary('Proportional Odds')"),
+                                            " requires the effect of a predictor to be consistent across ranked categories."),
+                                          p(strong("How to check:"), " ",
+                                            tags$button("Brant Test", class="glossary-link", onclick="goToGlossary('Brant Test')"), ".")
+                                      )
+                      ))
+             ),
+             tabPanel("Reporting & Troubleshooting", value = "reporting",
+                      fluidRow(column(10, offset = 1,
+                                      h2("Self-Service Troubleshooting Guide", style="color: var(--uf-blue);"),
+                                      hr(),
+                                      h3("1. Assumption Violation 'Fix-it' Guide", style="color: var(--uf-blue);"),
+                                      tags$table(class="table table-bordered",
+                                                 tags$thead(tags$tr(tags$th("If this fails..."), tags$th("Try this solution..."))),
+                                                 tags$tbody(
+                                                   tags$tr(tags$td("Normality"), tags$td("Try a Log or Square Root transformation, or switch to a Non-Parametric test.")),
+                                                   tags$tr(tags$td("Homogeneity of Variance"), tags$td("Use Welch's correction.")),
+                                                   tags$tr(tags$td("Sphericity"), tags$td("Apply Greenhouse-Geisser or Huynh-Feldt corrections.")),
+                                                   tags$tr(tags$td("Overdispersion"), tags$td("Switch from a Poisson model to a Negative Binomial model."))
+                                                 )
+                                      ),
+                                      br(),
+                                      h3("2. Deciphering the Output (Annotated Guide)", style="color: var(--uf-blue);"),
+                                      div(class="output-anno",
+                                          HTML("Call: lm(formula = yield ~ fertilizer)<br><br>
+Coefficients:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Estimate Std. Error t value <span class='anno-tag'>Pr(>|t|)</span> &larr; <b>p-value</b><br>
+(Intercept)&nbsp;&nbsp;12.450&nbsp;&nbsp;&nbsp;&nbsp;1.200&nbsp;&nbsp;10.375&nbsp;&nbsp;2.4e-09 ***<br>
+fertilizer&nbsp;&nbsp;&nbsp;&nbsp;5.210&nbsp;&nbsp;&nbsp;&nbsp;0.850&nbsp;&nbsp;&nbsp;6.129&nbsp;&nbsp;<span class='anno-tag'>0.00012</span> *** &larr; <b>Significant effect!</b><br><br>
+Multiple <span class='anno-tag'>R-squared: 0.573</span> &larr; <b>57.3% of variance explained</b>")
+                                      )
+                      ))
+             ),
+             tabPanel("Cheat Sheet", value = "cheatsheet",
+                      fluidRow(column(10, offset = 1,
+                                      h2("Statistical Test Cheat Sheet", style="color: var(--uf-blue);"),
+                                      div(class="tree-container",
+                                          div(class="tree-node-box", "Research Goal?"), div(class="tree-connector"),
+                                          div(class="tree-row",
+                                              div(style="display:flex; flex-direction:column; align-items:center;", div(class="tree-node-box", "Compare Groups"), div(class="tree-connector"), div(class="tree-leaf-box", "ANOVA / t-test")),
+                                              div(style="display:flex; flex-direction:column; align-items:center;", div(class="tree-node-box", "Relationship"), div(class="tree-connector"), div(class="tree-leaf-box", "Correlation")),
+                                              div(style="display:flex; flex-direction:column; align-items:center;", div(class="tree-node-box", "Prediction"), div(class="tree-connector"), div(class="tree-leaf-box", "Regression"))
+                                          )
+                                      ),
+                                      br(),
+                                      tags$table(class="table table-bordered cheat-sheet-table",
+                                                 tags$thead(tags$tr(tags$th("Goal"), tags$th("Data Type"), tags$th("Parametric"), tags$th("Non-Parametric"))),
+                                                 tags$tbody(
+                                                   tags$tr(tags$td("2 Indep Groups"), tags$td("Cont."), tags$td("Indep t-test"), tags$td("Mann-Whitney U")),
+                                                   tags$tr(tags$td(">2 Indep Groups"), tags$td("Cont."), tags$td("One-way ANOVA"), tags$td("Kruskal-Wallis"))
+                                                 )
+                                      )
+                      ))
+             ),
+             tabPanel("About & References", value = "about",
+                      fluidRow(column(8, offset = 2,
+                                      div(class = "well",
+                                          h3("About this Tool"),
+                                          p("Assisting researchers in life sciences with robust statistical selection."),
+                                          hr(),
+                                          h4("References"),
+                                          tags$ul(
+                                            tags$li(tags$a(href="https://www.nature.com/articles/s41598-022-11111-w", "Palomares Carrascosa (2022)", target="_blank")),
+                                            tags$li(tags$a(href="https://pubmed.ncbi.nlm.nih.gov/18556138/", "McCrum-Gardner (2008)", target="_blank"))
+                                          )
+                                      )
+                      ))
+             )
+  )
+)
+
+server <- function(input, output, session) {
+  analyzer_p_val <- reactiveVal(NULL)
+  
+  observeEvent(input$reset, { updateSelectInput(session, "goal", selected = "") })
+  observeEvent(input$go_to_assumption, { updateNavbarPage(session, "nav", selected = "assumption_guide") })
+  
+  glossary_data <- list(
+    "AIC (Akaike Information Criterion)" = "A mathematical method for evaluating how well a model fits the data it was generated from. It is used to compare different models and select the best one.",
+    "Alternative Hypothesis" = "The statement that there is a specific effect, relationship, or difference between variables, which you accept if the null hypothesis is rejected.",
+    "Analysis of Variance (ANOVA)" = "A statistical method used to test differences between two or more means by analyzing the variances of the groups.",
+    "Autocorrelation" = "A characteristic of data in which values of a variable are correlated with past values of themselves over successive time intervals.",
+    "Bias" = "The systematic tendency of an estimator to underestimate or overestimate a true population parameter.",
+    "Binary" = "Data with only two outcomes (e.g., Dead/Alive, Yes/No).",
+    "Brant Test" = "A statistical test used to verify the proportional odds assumption in ordinal logistic regression models.",
+    "Bray-Curtis Dissimilarity" = "A non-Euclidean distance metric used to quantify the compositional difference between two different sites or samples, commonly used in ecology.",
+    "Censoring" = "A data condition where the value of an observation is only partially known, typically because it falls outside the range of measurement or occurs outside the study window.",
+    "Central Limit Theorem (CLT)" = "A fundamental principle stating that as sample size grows large, the sampling distribution of the mean approaches a normal distribution, regardless of the population's original shape.",
+    "Coefficient of Determination (R^2)" = "A statistical measure that represents the proportion of the variance for a dependent variable that's explained by an independent variable or variables in a regression model.",
+    "Confidence Interval" = "A range of values derived from sample statistics that is likely to contain the true population parameter with a specified level of probability.",
+    "Confounding Variable" = "An extraneous factor that correlates with both the dependent and independent variables, potentially masking or distorting the true relationship between them.",
+    "Continuous" = "Data that can take any value in a range (e.g., height, yield).",
+    "Degrees of Freedom" = "The number of independent values or quantities which can be assigned to a statistical distribution without violating any constraints.",
+    "Deviance Residuals" = "A measure of the discrepancy between the observed data and the fitted model in generalized linear models (GLMs).",
+    "Dispersion" = "Refers to the spread of data. Overdispersion occurs when variance is higher than expected by the model.",
+    "Distance Matrix" = "A table showing the distances or dissimilarities between all pairs of samples in a dataset.",
+    "Dummy Variable" = "A numerical variable used in regression analysis to represent categorical data, taking a value of 0 or 1 to indicate the absence or presence of a specific attribute.",
+    "Dunn's Test" = "A post-hoc test used after a Kruskal-Wallis test to identify which specific groups differ from each other.",
+    "Econometrics" = "The application of statistical and mathematical methods to economic data in order to test hypotheses, estimate parameters, and forecast future trends.",
+    "Endogeneity" = "A situation in a regression model where an explanatory variable is correlated with the error term, often caused by omitted variables, measurement error, or simultaneity.",
+    "Euclidean Distance" = "The straight-line distance between two coordinates in a multi-dimensional space, calculated as the square root of the sum of squared differences between those coordinates.",
+    "Experimental Group" = "A group of subjects in a study or experiment that receives the specific treatment or intervention being tested.",
+    "Exponential Distribution" = "A continuous probability distribution used to model the time or space between independent, consecutive events occurring at a constant average rate.",
+    "F-statistic" = "A value calculated in ANOVA or regression to test whether the means of several groups are equal or if a model is significant.",
+    "Fixed Effects" = "Variables in a model that represent the overall population trends or specific treatments being tested.",
+    "Greenhouse-Geisser Correction" = "A statistical adjustment used in repeated measures ANOVA to compensate for violations of the sphericity assumption by reducing the degrees of freedom.",
+    "Heteroskedasticity" = "A condition in regression analysis where the variance of the residuals (error terms) is unequal across all levels of the independent variables.",
+    "Hold-out Data" = "Data set aside during model building to provide an unbiased evaluation of the final model's predictive accuracy.",
+    "Homoscedasticity" = "Explaining constant variance in linear models.",
+    "Huynh-Feldt Correction" = "A less conservative statistical adjustment than Greenhouse-Geisser, used to correct for violations of sphericity in repeated measures ANOVA.",
+    "Independence" = "A condition between random variables where the occurrence or value of one yields no predictive information about the probability or value of the other.",
+    "Kaplan-Meier Curve" = "A non-parametric statistic used to estimate the survival function from time-to-event data.",
+    "Linear Probability Model (LPM)" = "An OLS regression framework applied to a binary outcome variable, estimating the direct effect of independent variables on the probability of an event occurring.",
+    "Log Link Function" = "A mathematical function used in GLMs (like Poisson) to ensure predicted values are strictly positive.",
+    "Log-Normal Distribution" = "A continuous probability distribution of a random variable whose logarithm is normally distributed. Often used for data that is skewed and cannot be negative.",
+    "Logit Model" = "A non-linear regression model used to predict the probability of a binary dependent variable using a logistic function, ensuring predicted values fall strictly between 0 and 1.",
+    "Mardia's Test" = "A statistical test used to evaluate multivariate normality by checking for multivariate skewness and kurtosis.",
+    "Mauchly's Test" = "A statistical test used to assess the assumption of sphericity in repeated measures ANOVA designs.",
+    "Mean" = "The mathematical average of a dataset, calculated by summing all observed values and dividing by the total number of observations.",
+    "Median" = "The middle value in a list of numbers sorted from smallest to largest.",
+    "Monotonic Relationship" = "A relationship where as one variable increases, the other either increases or decreases, but not necessarily at a constant rate.",
+    "Multicollinearity" = "A condition where two or more predictor variables in a regression model are highly correlated.",
+    "Multivariate Analysis" = "A set of advanced statistical techniques used to simultaneously evaluate, manipulate, and analyze data involving more than one outcome or dependent variable.",
+    "Multivariate Normality" = "Assumes all variables in a multivariate set are normally distributed in combination. Required for MANOVA and DA.",
+    "Normal Distribution" = "A probability distribution that is symmetric about the mean, showing that data near the mean are more frequent in occurrence than data far from the mean.",
+    "Null Hypothesis" = "The foundational baseline assumption in a hypothesis test stating that no significant difference, effect, or relationship exists between the studied variables.",
+    "Odds Ratios" = "A measure of association between an exposure and an outcome.",
+    "Omitted Variable Bias" = "A bias that occurs when a regression model leaves out a relevant variable that is correlated with both the dependent and independent variables.",
+    "Ordinal" = "Categorical data with a clear order or ranking (e.g., survey responses: Low, Med, High).",
+    "Ordination Plot" = "A visual representation (like PCA or NMDS) that maps high-dimensional data into 2D or 3D space.",
+    "Outlier" = "An anomalous data point that deviates significantly from the central tendency of the remaining dataset.",
+    "Overdispersion" = "Occurs when variance is higher than expected by the model.",
+    "P-value" = "The exact probability of obtaining a test statistic at least as extreme as the one observed, calculated under the assumption that the null hypothesis is completely true.",
+    "Parametric" = "Statistical tests that assume the data follows a specific distribution (usually normal) and has equal variances across groups.",
+    "PERMDISP" = "A statistical test used to check for multivariate homogeneity of dispersions, often used alongside PERMANOVA.",
+    "Permutation Test" = "A non-parametric test that calculates p-values by randomly shuffling (permuting) the actual data points.",
+    "Post Hoc Test" = "A stepwise statistical adjustment conducted after an ANOVA to determine exactly which specific group pairs possess statistically significant differences.",
+    "Probit Model" = "A non-linear regression model designed for binary dependent variables that uses the cumulative standard normal distribution function to map predictions between 0 and 1.",
+    "Proportional Hazards" = "Assumes the ratio of the hazard rates for any two groups is constant over time. Crucial for Cox survival models.",
+    "Proportional Odds" = "In ordinal regression, assumes the effect of each predictor is consistent across all levels of the ranked outcome.",
+    "Q-Q Plot" = "A quantile-quantile plot used to visually check if a dataset follows a theoretical distribution, typically the normal distribution.",
+    "Random Effects" = "Variables in a model that capture variation across individual subjects or clusters, rather than overall population trends.",
+    "Rank-Transformation" = "A process where raw data values are replaced by their ranks (1st, 2nd, 3rd, etc.) before analysis.",
+    "Regression Analysis" = "A set of statistical modeling processes used to estimate the strength, direction, and significance of relationships between a dependent variable and one or more independent factors.",
+    "Residual" = "The difference between an observed value and the predicted value generated by a statistical model.",
+    "Schoenfeld Residuals" = "Residuals used in survival analysis to check the proportional hazards assumption of the Cox model over time.",
+    "Shapiro-Wilk Test" = "A statistical test used to evaluate the assumption of normality in a dataset.",
+    "Smoothing Splines" = "Mathematical functions used in GAMs to flexibly model non-linear relationships without a fixed formula.",
+    "Spectrophotometry" = "A quantitative methodology used to measure how much chemical substance absorbs light by measuring the intensity of light as a beam passes through a sample solution.",
+    "Standard Deviation" = "A metric that quantifies the average amount of variation or spread of individual data points around their mathematical mean.",
+    "Stress Value" = "A measure of how well a 2D or 3D ordination (like NMDS) represents the actual distances in the high-dimensional data.",
+    "Tukey's HSD" = "A specific post-hoc test used after ANOVA to identify significant differences between all possible pairs of group means.",
+    "Type I Error" = "The mistake of rejecting a null hypothesis when it is actually true (a false positive).",
+    "Variance" = "The expectation of the squared deviation of a random variable from its mean, serving as a fundamental metric for how dispersed a distribution is.",
+    "Variance Inflation Factor (VIF)" = "A measure used to detect multicollinearity among independent variables in a multiple regression model.",
+    "Weibull & Exponential" = "Parametric distributions used in survival analysis.",
+    "Welch's Correction" = "An adjustment used in t-tests and ANOVA when the assumption of equal variances (homoscedasticity) is violated."
+  )
+  
+  output$glossary_results <- renderUI({
+    query <- tolower(input$glossary_search); terms <- names(glossary_data)
+    if (query != "") terms <- terms[grepl(query, tolower(terms)) | grepl(query, tolower(unlist(glossary_data[terms])))]
+    if (length(terms) == 0) return(p("No matching terms found.", style="padding: 10px;"))
+    tagList(lapply(sort(terms), function(term) { div(style="padding: 10px; border-bottom: 1px solid #eee;", span(class="glossary-term", term), br(), p(glossary_data[[term]])) }))
+  })
+  
+  data_reactive <- reactive({ req(input$file1); read.csv(input$file1$datapath) })
+  output$var_selection_ui <- renderUI({ df <- data_reactive(); tagList(selectInput("response_var", "Select Response Variable", choices = names(df)[sapply(df, is.numeric)]), selectInput("group_var", "Select Grouping Variable", choices = names(df))) })
+  
+  output$analyzer_results_ui <- renderUI({
+    req(input$response_var, input$group_var); df <- data_reactive(); y <- df[[input$response_var]]; group <- df[[input$group_var]]
+    sw_test <- tryCatch(shapiro.test(y), error = function(e) NULL)
+    bt_test <- tryCatch(bartlett.test(y ~ group), error = function(e) NULL)
+    if(!is.null(sw_test)) analyzer_p_val(sw_test$p.value)
+    tagList(
+      h4("Normality (Shapiro-Wilk)"), div(class = paste("analyzer-result", if(!is.null(sw_test) && sw_test$p.value > 0.05) "pass" else "fail"), p("p-value: ", if(!is.null(sw_test)) round(sw_test$p.value, 4) else "Error")),
+      h4("Homogeneity (Bartlett's)"), div(class = paste("analyzer-result", if(!is.null(bt_test) && bt_test$p.value > 0.05) "pass" else "fail"), p("p-value: ", if(!is.null(bt_test)) round(bt_test$p.value, 4) else "Error"))
+    )
+  })
+  
+  output$push_to_explorer_ui <- renderUI({
+    req(analyzer_p_val())
+    actionButton("push_data", "Push Findings to Explorer", icon = icon("share"), class = "btn-warning", style="width:100%; margin-top:10px;")
+  })
+  
+  observeEvent(input$push_data, {
+    p_val <- analyzer_p_val()
+    if (!is.null(p_val)) {
+      updateSelectInput(session, "assumptions", selected = if(p_val > 0.05) "Yes" else "No")
+      updateNavbarPage(session, "nav", selected = "explorer")
+      sendSweetAlert(session, title = "Intelligence Linked!", text = paste0("Explorer updated based on p-value (", round(p_val, 4), ")."), type = "success")
+    }
+  })
+  
+  get_rec <- reactive({
+    req(input$goal); goal_val <- input$goal; res_type <- if (isTruthy(input$response_type)) input$response_type else ""; test_name <- NULL; desc <- NULL; use <- NULL; assump <- NULL; next_steps <- NULL; dive_topic <- NULL
+    if (identical(goal_val, "Compare groups")) {
+      if (identical(res_type, "Continuous")) {
+        str_val <- if (isTruthy(input$structure)) input$structure else ""
+        if (identical(str_val, "Completely Randomized Design (CRD)")) {
+          det_val <- if (isTruthy(input$num_groups)) input$num_groups else ""; ass_val <- if (isTruthy(input$assumptions)) input$assumptions else ""
+          if (identical(det_val, "2 groups") && ass_val != "") {
+            if (identical(ass_val, "Yes")) { test_name <- "Independent t-test"; desc <- "Compares the means of two independent groups."; use <- "An independent t-test is a statistical method used to compare the means of two separate, unrelated groups to determine if there is a significant difference between them."; assump <- "Normality, homogeneity of variance, independence of observations."; next_steps <- "Perform a Shapiro-Wilk test for normality and Levene's test for equality of variances. If significant, report the t-statistic, degrees of freedom, and p-value."; dive_topic <- "Homogeneity of Variance" }
+            else { test_name <- "Mann-Whitney U test"; desc <- "A non-parametric method to compare two independent groups without requiring normality."; use <- "Use when assumptions for the t-test are not met or data are ordinal."; assump <- "Independence of observations, ordinal or continuous data."; next_steps <- "Rank the data points across groups and perform the test. Report the U-statistic and p-value." }
+          } else if (identical(det_val, ">2 groups") && ass_val != "") {
+            if (identical(ass_val, "Yes")) { test_name <- "One-way ANOVA"; desc <- "Compares means of three or more independent groups."; use <- "Use when comparing 3+ group means with continuous data meeting parametric assumptions."; assump <- "Normality, homogeneity of variance, independence of observations."; next_steps <- "If significant (p < 0.05), follow up with Tukey's HSD post-hoc test."; dive_topic <- "Homogeneity of Variance" }
+            else { test_name <- "Kruskal-Wallis test"; desc <- "Non-parametric alternative to one-way ANOVA."; use <- "Use when normality assumptions are not met for 3+ groups."; assump <- "Independence of observations, ordinal or continuous data."; next_steps <- "If significant, use Dunn's test for pairwise comparisons." }
+          }
+        } else if (identical(str_val, "RCBD") && (ass_val <- if (isTruthy(input$assumptions)) input$assumptions else "") != "") {
+          if (identical(ass_val, "Yes")) { test_name <- "RCBD ANOVA"; desc <- "ANOVA for randomized complete block designs."; use <- "Use for blocked experimental designs where assumptions are met."; assump <- "Normality, homogeneity of variance."; next_steps <- "Include the Block effect in your model."; dive_topic <- "Homogeneity of Variance" }
+          else { test_name <- "Friedman test"; desc <- "Non-parametric alternative for blocked designs."; use <- "Use for blocked designs when assumptions are not met."; assump <- "Independence within blocks."; next_steps <- "Use Nemenyi post-hoc tests if significant." }
+        } else if (identical(str_val, "Split-plot") && (ass_val <- if (isTruthy(input$assumptions)) input$assumptions else "") != "") {
+          if (identical(ass_val, "Yes")) { test_name <- "Split-plot ANOVA"; desc <- "ANOVA for split-plot experimental designs."; use <- "Use for split-plot designs with assumptions met."; assump <- "Normality, homogeneity of variance."; next_steps <- "Use correct error terms for whole-plot vs subplot factors."; dive_topic <- "Homogeneity of Variance" }
+          else { test_name <- "Mixed model with transformed/nonparametric approach"; desc <- "A flexible approach for non-normal split-plot data."; use <- "Use when assumptions are violated."; assump <- "More flexible than ANOVA."; next_steps <- "Consider Aligned Rank Transform (ART) before fitting mixed-effects model." }
+        } else if (identical(str_val, "Repeated measures") && (ass_val <- if (isTruthy(input$assumptions)) input$assumptions else "") != "") {
+          if (identical(ass_val, "Yes")) { test_name <- "Repeated Measures ANOVA"; desc <- "Compares means across time points or conditions on the same subjects."; use <- "Use for repeated measures designs with assumptions met."; assump <- "Normality, sphericity."; next_steps <- "Perform Mauchly's test for sphericity. If violated, apply Greenhouse-Geisser or Huynh-Feldt corrections."; dive_topic <- "Sphericity" }
+          else { test_name <- "Linear Mixed Model"; desc <- "A flexible model for repeated/correlated data."; use <- "Use for repeated measures with violated assumptions or unbalanced data."; assump <- "More flexible than repeated measures ANOVA."; next_steps <- "Specify random intercepts/slopes for subjects and choose an appropriate covariance structure." }
+        } else if (identical(str_val, "Nested design") && (ass_val <- if (isTruthy(input$assumptions)) input$assumptions else "") != "") {
+          if (identical(ass_val, "Yes")) { test_name <- "Nested ANOVA"; desc <- "ANOVA for nested/hierarchical experimental structures."; use <- "Use for nested designs with assumptions met."; assump <- "Normality, homogeneity of variance."; next_steps <- "Define nesting structure clearly and use the correct error term for each factor level."; dive_topic <- "Homogeneity of Variance" }
+          else { test_name <- "Mixed model"; desc <- "A flexible framework for nested/hierarchical data."; use <- "Use for nested designs when assumptions are violated."; assump <- "More flexible than nested ANOVA."; next_steps <- "Treat nested factors as random effects and evaluate variance components." }
+        }
+      } else if (identical(res_type, "Count") && (ass_val <- if (isTruthy(input$assumptions)) input$assumptions else "") != "") {
+        if (identical(ass_val, "No")) { test_name <- "Poisson GLM"; desc <- "Models count data when variance equals mean."; use <- "Use for count data when variance equals mean."; assump <- "Poisson distribution, no overdispersion."; next_steps <- "Check residual deviance. If ratio >> 1, switch to Negative Binomial."; dive_topic <- "Overdispersion" }
+        else { test_name <- "Negative Binomial GLM"; desc <- "Models overdispersed count data."; use <- "Use for count data when variance exceeds mean."; assump <- "Negative binomial distribution."; next_steps <- "Evaluate the dispersion parameter and compare fit to Poisson via Likelihood Ratio Test."; dive_topic <- "Overdispersion" }
+      } else if (identical(res_type, "Binary") && (ind_val <- if (isTruthy(input$independence)) input$independence else "") != "") {
+        if (identical(ind_val, "Yes")) { test_name <- "Logistic regression"; desc <- "Models probability of a binary outcome."; use <- "Use for binary response variables with independent observations."; assump <- "Independence of observations, binary outcome."; next_steps <- "Interpret coefficients as Odds Ratios. Evaluate accuracy using confusion matrix and AUC."; dive_topic <- "Independence" }
+        else { test_name <- "Generalized Linear Mixed Model (GLMM)"; desc <- "Extends logistic regression to handle clustered or repeated binary outcomes."; use <- "Use for binary response variables with repeated measures or clustering."; assump <- "Binary outcome, accounts for dependence structure."; next_steps <- "Include grouping factor as random effect and check for model convergence." }
+      } else if (identical(res_type, "Proportion") && (prp_val <- if (isTruthy(input$proportion_type)) input$proportion_type else "") != "") {
+        if (identical(prp_val, "Values bounded between 0 and 1")) { test_name <- "Beta regression"; desc <- "Models continuous proportions strictly between 0 and 1."; use <- "Use for proportion data that are continuous and bounded."; assump <- "Beta distribution."; next_steps <- "Ensure no values are exactly 0 or 1. Evaluate pseudo-R-squared for model fit." }
+        else { test_name <- "Binomial GLM"; desc <- "Models binomial outcomes (successes out of trials)."; use <- "Use for binomial outcomes (successes/failures)."; assump <- "Binomial distribution."; next_steps <- "Format response as a matrix of successes and failures. Check for overdispersion."; dive_topic <- "Overdispersion" }
+      } else if (identical(res_type, "Ordinal") && (ind_val <- if (isTruthy(input$independence)) input$independence else "") != "") {
+        if (identical(ind_val, "Yes")) { test_name <- "Ordinal logistic regression"; desc <- "Models ordered categorical outcomes."; use <- "Use for ordinal response variables with independent observations."; assump <- "Independence of observations, proportional odds."; next_steps <- "Test proportional odds assumption with Brant test. If failed, use partial proportional odds model."; dive_topic <- "Proportional Odds" }
+        else { test_name <- "Ordinal mixed model"; desc <- "Models ordered outcomes in nested/repeated data."; use <- "Use for ordinal response variables with repeated measures or clustering."; assump <- "Ordinal outcome, accounts for dependence structure."; next_steps <- "Add random effect for subjects and evaluate cumulative probabilities." }
+      }
+    } else if (identical(goal_val, "Relationship between variables")) {
+      if (identical(res_type, "Continuous vs Continuous") && (ass_val <- if (isTruthy(input$assumptions)) input$assumptions else "") != "") {
+        if (identical(ass_val, "Yes")) { test_name <- "Pearson correlation / Linear regression"; desc <- "Quantifies linear relationships between two continuous variables."; use <- "Use for normally distributed continuous variables with linear relationships."; assump <- "Normality, linearity, homoscedasticity."; next_steps <- "Calculate r and check residuals for normality and homoscedasticity using diagnostic plots."; dive_topic <- "Linearity" }
+        else { test_name <- "Spearman correlation"; desc <- "Non-parametric correlation based on ranks."; use <- "Use when normality assumption is violated or data are ordinal."; assump <- "Monotonic relationship, independence of observations."; next_steps <- "Rank variables and calculate rho. Interpret as strength of monotonic association." }
+      } else if (identical(res_type, "Multivariate community/ecological data") && (mul_val <- if (isTruthy(input$multivariate_goal)) input$multivariate_goal else "") != "") {
+        if (identical(mul_val, "Ordination")) { test_name <- "PCA / NMDS"; desc <- "Reduces high-dimensional data to visualizable dimensions."; use <- "Use to visualize and explore patterns in high-dimensional data."; assump <- "PCA assumes linearity; NMDS is more flexible."; next_steps <- "For NMDS, ensure stress < 0.2. For PCA, check variance explained by first axes."; dive_topic <- "Linearity" }
+        else { test_name <- "PERMANOVA"; desc <- "Non-parametric test for differences in multivariate group structure."; use <- "Use to compare community structure across groups."; assump <- "Independence of observations."; next_steps <- "Define distance matrix (e.g., Bray-Curtis) and check PERMDISP for homogeneity of dispersions." }
+      } else if (identical(res_type, "Binary response") && (ind_val <- if (isTruthy(input$independence_rel)) input$independence_rel else "") != "") {
+        if (identical(ind_val, "Yes")) { test_name <- "Logistic regression"; desc <- "Models binary outcomes as a function of predictors."; use <- "Use for binary response variables with independent observations."; assump <- "Independence of observations, binary outcome."; next_steps <- "Assess predictor significance and check for multicollinearity."; dive_topic <- "Independence" }
+        else { test_name <- "GLMM"; desc <- "Handles binary outcomes in clustered/repeated data."; use <- "Use for binary response variables with repeated measures or clustering."; assump <- "Binary outcome, accounts for dependence structure."; next_steps <- "Identify correct random effect structure and validate using deviance residuals." }
+      } else if (identical(res_type, "Count response") && (ass_val <- if (isTruthy(input$assumptions)) input$assumptions else "") != "") {
+        if (identical(ass_val, "No")) { test_name <- "Poisson regression"; desc <- "Models count outcomes as a function of predictors."; use <- "Use for count data when variance equals mean."; assump <- "Poisson distribution, no overdispersion."; next_steps <- "Examine mean-variance relationship. If overdispersed, switch to Negative Binomial."; dive_topic <- "Overdispersion" }
+        else { test_name <- "Negative Binomial regression"; desc <- "Models overdispersed count outcomes."; use <- "Use for count data when variance exceeds mean."; assump <- "Negative binomial distribution."; next_steps <- "Estimate dispersion parameter and evaluate fit using residual diagnostic plots."; dive_topic <- "Overdispersion" }
+      } else if (identical(res_type, "Ordinal response") && (ind_val <- if (isTruthy(input$independence_rel)) input$independence_rel else "") != "") {
+        if (identical(ind_val, "Yes")) { test_name <- "Ordinal logistic regression"; desc <- "Models ordered categorical outcomes as a function of predictors."; use <- "Use for ordinal response variables with independent observations."; assump <- "Independence, proportional odds."; next_steps <- "Interpret coefficients as change in log-odds of higher category. Check fit with AIC."; dive_topic <- "Proportional Odds" }
+        else { test_name <- "Ordinal mixed model"; desc <- "Models ordered outcomes in hierarchical/repeated data."; use <- "Use for ordinal response variables with repeated measures or clustering."; assump <- "Ordinal outcome, accounts for dependence structure."; next_steps <- "Include random effects and check proportional odds consistency across groups."; dive_topic <- "Proportional Odds" }
+      }
+    } else if (identical(goal_val, "Prediction / Classification")) {
+      if (identical(res_type, "Continuous") && (lin_val <- if (isTruthy(input$linearity)) input$linearity else "") != "") {
+        if (identical(lin_val, "Yes")) { test_name <- "Multiple linear regression"; desc <- "Models linear relationships between predictors and a continuous outcome."; use <- "Use for linear relationships between predictors and continuous outcome."; assump <- "Linearity, normality of residuals, homoscedasticity."; next_steps <- "Evaluate R-squared and check for multicollinearity using VIF."; dive_topic <- "Multicollinearity" }
+        else { test_name <- "GAM or nonlinear regression"; desc <- "Models non-linear relationships flexibly."; use <- "Use when relationships are non-linear."; assump <- "Flexible."; next_steps <- "For GAMs, check smoothing parameters. For nonlinear regression, evaluate the fit of the specified curve." }
+      } else if (identical(res_type, "Binary") && (str_val <- if (isTruthy(input$structure_pred)) input$structure_pred else "") != "") {
+        if (identical(str_val, "No")) { test_name <- "Logistic regression"; desc <- "Predicts probability of a binary outcome."; use <- "Use for binary classification without repeated measures."; assump <- "Independence of observations, binary outcome."; next_steps <- "Use cross-validation and generate confusion matrix for accuracy, sensitivity, and specificity."; dive_topic <- "Independence" }
+        else { test_name <- "GLMM"; desc <- "Predicts binary outcomes in clustered/repeated data."; use <- "Use for binary classification with repeated measures or clustering."; assump <- "Binary outcome, accounts for dependence structure."; next_steps <- "Validate random effect structure and predict probabilities while controlling for group-level variability." }
+      } else if (identical(res_type, "Count") && (ass_val <- if (isTruthy(input$assumptions)) input$assumptions else "") != "") {
+        if (identical(ass_val, "No")) { test_name <- "Poisson regression"; desc <- "Predicts count outcomes assuming variance equals mean."; use <- "Use for count predictions when variance equals mean."; assump <- "Poisson distribution."; next_steps <- "Inspect predicted vs observed counts and check for overdispersion."; dive_topic <- "Overdispersion" }
+        else { test_name <- "Negative Binomial regression"; desc <- "Predicts overdispersed count outcomes."; use <- "Use for count predictions when variance exceeds mean."; assump <- "Negative binomial distribution."; next_steps <- "Evaluate dispersion parameter and use cross-validation to assess prediction accuracy."; dive_topic <- "Overdispersion" }
+      } else if (identical(res_type, "Time-to-event / mortality / failure") && (cen_val <- if (isTruthy(input$censoring)) input$censoring else "") != "") {
+        if (identical(cen_val, "Yes")) { test_name <- "Survival analysis (Cox model)"; desc <- "Models time-to-event data with censored observations."; use <- "Use when some observations are censored."; assump <- "Proportional hazards."; next_steps <- "Verify proportional hazards via Schoenfeld residuals. Generate Kaplan-Meier curves for key predictors."; dive_topic <- "Proportional Hazards" }
+        else { test_name <- "Parametric survival model"; desc <- "Models time-to-event data assuming a specific distribution."; use <- "Use when all observations are complete (no censoring)."; assump <- "Specific parametric distribution."; next_steps <- "Test Weibull vs Exponential distributions using AIC and predict survival times for new observations."; dive_topic <- "Proportional Hazards" }
+      } else if (identical(res_type, "High-dimensional multivariate data") && (hgh_val <- if (isTruthy(input$high_dim_goal)) input$high_dim_goal else "") != "") {
+        if (identical(hgh_val, "Dimension reduction")) { test_name <- "PCA"; desc <- "Reduces high-dimensional data to principal components."; use <- "Use to visualize and simplify high-dimensional datasets."; assump <- "Linearity."; next_steps <- "Identify components explaining the most variance and use them as input for further analyses."; dive_topic <- "Linearity" }
+        else { test_name <- "Discriminant analysis / Random Forest"; desc <- "Classifies observations using multiple predictors."; use <- "Use for classification with many predictors."; assump <- "Depends on method."; next_steps <- "For DA, check multivariate normality. For Random Forest, evaluate variable importance and classification accuracy on a test set."; dive_topic <- "Multivariate Normality" }
+      }
+    }
+    list(name = test_name, desc = desc, use = use, assump = assump, next_steps = next_steps, dive_topic = dive_topic)
+  })
+  
+  output$step_progress <- renderUI({
+    res <- get_rec(); percent <- if (!is.null(res$name)) 100 else { steps <- 1; if (isTruthy(input$goal)) steps <- 2; if (isTruthy(input$response_type)) steps <- 3; s3_done <- any(sapply(c("structure", "independence", "multivariate_goal", "independence_rel", "linearity", "structure_pred", "high_dim_goal", "proportion_type", "censoring"), function(x) isTruthy(input[[x]]))); if (s3_done) steps <- 4; if (isTruthy(input$num_groups)) steps <- 5; if (isTruthy(input$assumptions)) steps <- 6; min(round((steps-1)/5 * 100), 80) }
+    progressBar(id = "pbar", value = percent, status = if(percent==100) "success" else "primary", display_pct = TRUE, title = "Selection Progress")
+  })
+  
+  output$response_ui <- renderUI({ req(input$goal); selectInput("response_type", "2. What is the type of the response variable?", choices = switch(input$goal, "Compare groups" = c("Select one" = "", "Continuous", "Count", "Binary", "Proportion", "Ordinal"), "Relationship between variables" = c("Select one" = "", "Continuous vs Continuous", "Multivariate community/ecological data", "Binary response", "Count response", "Ordinal response"), "Prediction / Classification" = c("Select one" = "", "Continuous", "Binary", "Count", "Time-to-event / mortality / failure", "High-dimensional multivariate data"))) })
+  output$structure_ui <- renderUI({ req(input$response_type); if (input$goal == "Compare groups" && input$response_type == "Continuous") selectInput("structure", "3. What is the experimental structure?", choices = c("Select one" = "", "Completely Randomized Design (CRD)", "RCBD", "Split-plot", "Repeated measures", "Nested design")) else if (input$goal == "Compare groups" && input$response_type %in% c("Binary", "Ordinal")) selectInput("independence", "3. Are the observations independent?", choices = c("Select one" = "", "Yes", "No")) else if (input$goal == "Relationship between variables" && input$response_type == "Multivariate community/ecological data") selectInput("multivariate_goal", "3. What is the goal of the multivariate analysis?", choices = c("Select one" = "", "Ordination", "Group comparison")) else if (input$goal == "Relationship between variables" && input$response_type %in% c("Binary response", "Ordinal response")) selectInput("independence_rel", "3. Are the observations independent?", choices = c("Select one" = "", "Yes", "No")) else if (input$goal == "Prediction / Classification" && input$response_type == "Continuous") selectInput("linearity", "3. Is there a linear relationship?", choices = c("Select one" = "", "Yes", "No")) else if (input$goal == "Prediction / Classification" && input$response_type == "Binary") selectInput("structure_pred", "3. Is there a repeated or nested structure?", choices = c("Select one" = "", "Yes", "No")) else if (input$goal == "Prediction / Classification" && input$response_type == "High-dimensional multivariate data") selectInput("high_dim_goal", "3. What is the goal?", choices = c("Select one" = "", "Dimension reduction", "Classification")) else if (input$response_type == "Proportion") selectInput("proportion_type", "3. How are the values represented?", choices = c("Select one" = "", "Values bounded between 0 and 1", "Binomial counts")) else if (input$response_type == "Time-to-event / mortality / failure") selectInput("censoring", "3. Are there censored observations?", choices = c("Select one" = "", "Yes", "No")) })
+  output$details_ui <- renderUI({ if (isTruthy(input$structure) && input$structure == "Completely Randomized Design (CRD)") selectInput("num_groups", "4. How many groups are being compared?", choices = c("Select one" = "", "2 groups", ">2 groups")) })
+  output$assumptions_ui <- renderUI({ show_assumptions <- isTruthy(input$num_groups) || (isTruthy(input$structure) && input$structure %in% c("RCBD", "Split-plot", "Nested design")) || (isTruthy(input$response_type) && input$response_type %in% c("Count", "Count response", "Continuous vs Continuous")); if (isTruthy(input$structure) && input$structure == "Repeated measures") return(selectInput("assumptions", "5. Are normality and covariance assumptions met?", choices = c("Select one" = "", "Yes", "No"))); if (show_assumptions) selectInput("assumptions", if (isTruthy(input$response_type) && input$response_type %in% c("Count", "Count response")) "4. Is overdispersion present?" else "5. Are the necessary assumptions met?", choices = c("Select one" = "", "Yes", "No")) })
+  
+  output$recommendation_ui <- renderUI({
+    res <- get_rec()
+    if (!is.null(res$name)) {
+      tagList(
+        div(class = "recommendation-box", h3("Recommended Analysis:", style = "color: var(--uf-blue); margin-top: 0;"), h2(style = "color: var(--uf-orange); font-weight: bold;", res$name), hr(), p(HTML(paste0("<strong>Description:</strong> ", res$desc))), p(HTML(paste0("<strong>When to use:</strong> ", res$use))), p(HTML(paste0("<strong>Assumptions:</strong> ", res$assump))), if (!is.null(res$dive_topic)) { actionLink("go_to_assumption", paste0("Learn more about ", res$dive_topic, " in the Assumption Check Guide tab"), class="learn-more-link") }, div(class = "next-steps", h4(icon("list-check"), "Next Steps for Data Analysis:"), p(res$next_steps))),
+        br(), downloadButton("download_plan", "Download Official Analysis Plan (HTML)", class = "btn-warning", style="width:100%;")
+      )
+    } else { div(class = "well", p(icon("arrow-left"), " Please complete the selections in the sidebar to receive a detailed recommendation.")) }
+  })
+  
+  output$download_plan <- downloadHandler(
+    filename = function() { paste0("Analysis_Plan_", gsub(" ", "_", get_rec()$name), ".html") },
+    content = function(file) {
+      res <- get_rec()
+      html_content <- HTML(paste0(
+        "<html><head><style>body{font-family:sans-serif; padding:40px; color:#333;} h1{color:#0021A5;} .box{border:1px solid #ddd; padding:20px; border-radius:8px; background:#f9f9f9;} .header{border-bottom:2px solid #FA4616; margin-bottom:20px;}</style></head><body>",
+        "<div class='header'><h1>Statistical Analysis Plan</h1><p>Generated by the Statistical Test Decision Tree</p></div>",
+        "<h3>Recommended Test: ", res$name, "</h3>",
+        "<div class='box'>",
+        "<p><strong>Description:</strong> ", res$desc, "</p>",
+        "<p><strong>When to Use:</strong> ", res$use, "</p>",
+        "<p><strong>Core Assumptions:</strong> ", res$assump, "</p>",
+        "</div>",
+        "<h3>Next Steps for Your Research:</h3>",
+        "<div class='box' style='background:#eef4ff;'>", p(res$next_steps), "</div>",
+        "<br><p><em>Disclaimer: This plan is a guide. Always consult with your principal investigator or a statistician for final verification.</em></p>",
+        "</body></html>"
+      ))
+      writeLines(as.character(html_content), file)
+    }
+  )
+}
+
+shinyApp(ui = ui, server = server)
+
