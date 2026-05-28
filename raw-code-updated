@@ -31,7 +31,6 @@ ui <- fluidPage(
     .tree-connector { height: 30px; width: 2px; background: #ccc; position: relative; }
     .tree-connector::after { content: '▼'; position: absolute; bottom: -10px; left: -6px; color: #ccc; font-size: 12px; }
     .tree-row { display: flex; justify-content: center; width: 100%; flex-wrap: wrap; }
-    .tree-label-small { font-size: 0.8em; color: #777; font-style: italic; margin-bottom: 2px; }
   "))),
   navbarPage(title = "Statistical Test Decision Tree", id = "nav",
     tabPanel("Explorer", value = "explorer",
@@ -59,7 +58,8 @@ ui <- fluidPage(
         sidebarLayout(
           sidebarPanel(width = 4,
             fileInput("file1", "Upload CSV File", accept = ".csv"),
-            uiOutput("var_selection_ui")
+            uiOutput("var_selection_ui"),
+            uiOutput("push_to_explorer_ui")
           ),
           mainPanel(width = 8, uiOutput("analyzer_results_ui"))
         )
@@ -146,6 +146,9 @@ ui <- fluidPage(
 )
 
 server <- function(input, output, session) {
+  # State variables for linked intelligence
+  analyzer_p_val <- reactiveVal(NULL)
+  
   observeEvent(input$reset, { updateSelectInput(session, "goal", selected = "") })
   observeEvent(input$go_to_assumption, { updateNavbarPage(session, "nav", selected = "assumption_guide") })
 
@@ -242,7 +245,34 @@ server <- function(input, output, session) {
   # Data Analyzer Logic
   data_reactive <- reactive({ req(input$file1); read.csv(input$file1$datapath) })
   output$var_selection_ui <- renderUI({ df <- data_reactive(); tagList(selectInput("response_var", "Select Response Variable", choices = names(df)[sapply(df, is.numeric)]), selectInput("group_var", "Select Grouping Variable", choices = names(df))) })
-  output$analyzer_results_ui <- renderUI({ req(input$response_var, input$group_var); df <- data_reactive(); y <- df[[input$response_var]]; group <- df[[input$group_var]]; sw_test <- tryCatch(shapiro.test(y), error = function(e) NULL); bt_test <- tryCatch(bartlett.test(y ~ group), error = function(e) NULL); tagList(h4("Normality (Shapiro-Wilk)"), div(class = paste("analyzer-result", if(!is.null(sw_test) && sw_test$p.value > 0.05) "pass" else "fail"), p("p-value: ", if(!is.null(sw_test)) round(sw_test$p.value, 4) else "Error")), h4("Homogeneity (Bartlett's)"), div(class = paste("analyzer-result", if(!is.null(bt_test) && bt_test$p.value > 0.05) "pass" else "fail"), p("p-value: ", if(!is.null(bt_test)) round(bt_test$p.value, 4) else "Error"))) })
+  
+  output$analyzer_results_ui <- renderUI({ 
+    req(input$response_var, input$group_var); df <- data_reactive(); y <- df[[input$response_var]]; group <- df[[input$group_var]]
+    sw_test <- tryCatch(shapiro.test(y), error = function(e) NULL)
+    bt_test <- tryCatch(bartlett.test(y ~ group), error = function(e) NULL)
+    
+    # Store normality p-value for linked intelligence
+    if(!is.null(sw_test)) analyzer_p_val(sw_test$p.value)
+    
+    tagList(
+      h4("Normality (Shapiro-Wilk)"), div(class = paste("analyzer-result", if(!is.null(sw_test) && sw_test$p.value > 0.05) "pass" else "fail"), p("p-value: ", if(!is.null(sw_test)) round(sw_test$p.value, 4) else "Error")),
+      h4("Homogeneity (Bartlett's)"), div(class = paste("analyzer-result", if(!is.null(bt_test) && bt_test$p.value > 0.05) "pass" else "fail"), p("p-value: ", if(!is.null(bt_test)) round(bt_test$p.value, 4) else "Error"))
+    )
+  })
+
+  output$push_to_explorer_ui <- renderUI({
+    req(analyzer_p_val())
+    actionButton("push_data", "Push Findings to Explorer", icon = icon("share"), class = "btn-warning", style="width:100%; margin-top:10px;")
+  })
+
+  observeEvent(input$push_data, {
+    p_val <- analyzer_p_val()
+    if (!is.null(p_val)) {
+      updateSelectInput(session, "assumptions", selected = if(p_val > 0.05) "Yes" else "No")
+      updateNavbarPage(session, "nav", selected = "explorer")
+      sendSweetAlert(session, title = "Intelligence Linked!", text = paste0("Explorer updated based on p-value (", round(p_val, 4), ")."), type = "success")
+    }
+  })
 
   get_rec <- reactive({
     req(input$goal); goal_val <- input$goal; res_type <- if (isTruthy(input$response_type)) input$response_type else ""; test_name <- NULL; desc <- NULL; use <- NULL; assump <- NULL; next_steps <- NULL; dive_topic <- NULL
@@ -335,9 +365,34 @@ server <- function(input, output, session) {
   output$recommendation_ui <- renderUI({
     res <- get_rec()
     if (!is.null(res$name)) {
-      div(class = "recommendation-box", h3("Recommended Analysis:", style = "color: var(--uf-blue); margin-top: 0;"), h2(style = "color: var(--uf-orange); font-weight: bold;", res$name), hr(), p(HTML(paste0("<strong>Description:</strong> ", res$desc))), p(HTML(paste0("<strong>When to use:</strong> ", res$use))), p(HTML(paste0("<strong>Assumptions:</strong> ", res$assump))), if (!is.null(res$dive_topic)) { actionLink("go_to_assumption", paste0("Learn more about ", res$dive_topic, " in the Assumption Check Guide tab"), class="learn-more-link") }, div(class = "next-steps", h4(icon("list-check"), "Next Steps for Data Analysis:"), p(res$next_steps)))
+      tagList(
+        div(class = "recommendation-box", h3("Recommended Analysis:", style = "color: var(--uf-blue); margin-top: 0;"), h2(style = "color: var(--uf-orange); font-weight: bold;", res$name), hr(), p(HTML(paste0("<strong>Description:</strong> ", res$desc))), p(HTML(paste0("<strong>When to use:</strong> ", res$use))), p(HTML(paste0("<strong>Assumptions:</strong> ", res$assump))), if (!is.null(res$dive_topic)) { actionLink("go_to_assumption", paste0("Learn more about ", res$dive_topic, " in the Assumption Check Guide tab"), class="learn-more-link") }, div(class = "next-steps", h4(icon("list-check"), "Next Steps for Data Analysis:"), p(res$next_steps))),
+        br(), downloadButton("download_plan", "Download Official Analysis Plan (HTML)", class = "btn-warning", style="width:100%;")
+      )
     } else { div(class = "well", p(icon("arrow-left"), " Please complete the selections in the sidebar to receive a detailed recommendation.")) }
   })
+
+  output$download_plan <- downloadHandler(
+    filename = function() { paste0("Analysis_Plan_", gsub(" ", "_", get_rec()$name), ".html") },
+    content = function(file) {
+      res <- get_rec()
+      html_content <- HTML(paste0(
+        "<html><head><style>body{font-family:sans-serif; padding:40px; color:#333;} h1{color:#0021A5;} .box{border:1px solid #ddd; padding:20px; border-radius:8px; background:#f9f9f9;} .header{border-bottom:2px solid #FA4616; margin-bottom:20px;}</style></head><body>",
+        "<div class='header'><h1>Statistical Analysis Plan</h1><p>Generated by the Statistical Test Decision Tree</p></div>",
+        "<h3>Recommended Test: ", res$name, "</h3>",
+        "<div class='box'>",
+        "<p><strong>Description:</strong> ", res$desc, "</p>",
+        "<p><strong>When to Use:</strong> ", res$use, "</p>",
+        "<p><strong>Core Assumptions:</strong> ", res$assump, "</p>",
+        "</div>",
+        "<h3>Next Steps for Your Research:</h3>",
+        "<div class='box' style='background:#eef4ff;'>", p(res$next_steps), "</div>",
+        "<br><p><em>Disclaimer: This plan is a guide. Always consult with your principal investigator or a statistician for final verification.</em></p>",
+        "</body></html>"
+      ))
+      writeLines(as.character(html_content), file)
+    }
+  )
 }
 
 shinyApp(ui = ui, server = server)
